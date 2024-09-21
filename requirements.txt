@@ -7,4 +7,4 @@ pandas
 uuid
 beautifulsoup4
 protobuf==3.19
-pysqlite3-binary
+pysqlite3-binary==3.35.0
