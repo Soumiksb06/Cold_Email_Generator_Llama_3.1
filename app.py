@@ -1,132 +1,121 @@
 import streamlit as st
 from langchain_groq import ChatGroq
-from langchain_community.document_loaders import WebBaseLoader
 import chromadb
-import uuid
 import pandas as pd
-from langchain.prompts import PromptTemplate
-import os
-import json
-os.environ['PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION'] = 'python'
+import uuid
+from langchain_community.document_loaders import WebBaseLoader
+from langchain_core.prompts import PromptTemplate
+from langchain_core.output_parsers import JsonOutputParser
 
-# Set up LangChain LLM (replace with your API key)
+# Initialize LLM (Groq Model)
 llm = ChatGroq(
     temperature=1,
     groq_api_key='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',
     model='llama-3.1-70b-versatile'
 )
 
-# Streamlit app title
-st.title("Cold Email Generator from Job Page URL")
+# Initialize ChromaDB
+client = chromadb.Client()
+collection = client.create_collection(name='my_collection')
 
-# Section: Web Scraping and Job Extraction
-st.header("1. Extract Job Description from URL")
-url = st.text_input("Enter a job page URL", "https://jobs.nike.com/job/R-37936?from=job%20search%20funnel")
+st.title("AI-Powered Job Postings Scraper & Cold Email Generator")
 
-if st.button("Extract Job Description"):
-    if url:
-        # Load the web page content
-        loader = WebBaseLoader(url)
-        page_data = loader.load()[0].page_content
+# Section 1: LLM Query
+st.header("LLM Query")
+prompt = st.text_input("Enter your query for the Groq Model", "Who are you?")
+if st.button("Submit Query"):
+    res = llm.invoke(prompt)
+    st.write(f"Response: {res.content}")
 
-        # Set up the prompt to extract job details
-        prompt_extract = PromptTemplate.from_template(
-            """
-            ### SCRAPED TEXT FROM WEBSITE:
-            {page_data}
-            ### INSTRUCTION:
-            The scraped text is from the career's page of a website.
-            Your job is to extract the job postings and return them in JSON format containing the
-            following keys: `role`, `experience`, `skills`, and `description`.
-            Only return the valid JSON.
-            ### VALID JSON (NO PREAMBLE):
-            """
-        )
-        
-        # Generate the job description using LangChain
-        chain_extract = prompt_extract | llm
-        res = chain_extract.invoke({"page_data": page_data})
+# Section 2: Vector Database - ChromaDB
+st.header("ChromaDB Operations")
+docs_list = ["Query is about New York", "This is Kolkata", "Hello Mumbai"]
+if st.button("Add documents to ChromaDB"):
+    collection.add(
+        documents=docs_list,
+        ids=['id4', 'id5', 'id3']
+    )
+    st.success("Documents added successfully!")
 
-        # Display the extracted job description
-        st.subheader("Extracted Job Description:")
-        try:
-            job_description = json.loads(res.content)
-            st.json(job_description)
-        except json.JSONDecodeError:
-            st.error("Failed to parse JSON. Raw response:")
-            st.write(res.content)
-    else:
-        st.error("Please enter a valid URL.")
+if st.button("Retrieve all documents"):
+    all_docs = collection.get()
+    st.write(all_docs)
 
-# Section: Upload Portfolio (Optional)
-st.header("2. Upload Portfolio (Optional)")
-uploaded_file = st.file_uploader("Upload your portfolio CSV", type="csv")
+if st.button("Delete a document by ID (id4)"):
+    collection.delete(ids=['id4'])
+    st.success("Document with ID 'id4' deleted!")
 
-links = []
-if uploaded_file:
-    df = pd.read_csv(uploaded_file)
-    st.write("Uploaded Portfolio:")
-    st.dataframe(df)
+# Section 3: Web Scraping
+st.header("Web Scraping")
+url = st.text_input("Enter the job posting URL to scrape", "https://jobs.nike.com/job/R-37936?from=job%20search%20funnel")
+if st.button("Scrape Job Postings"):
+    loader = WebBaseLoader(url)
+    page_data = loader.load().pop().page_content
+    st.write(f"Scraped data: {page_data}")
 
-    # Initialize ChromaDB client and create a collection
-    client = chromadb.PersistentClient(path='./vectorstore')
+    prompt_extract = PromptTemplate.from_template(
+        """
+        ### SCRAPED TEXT FROM WEBSITE:
+        {page_data}
+        ### INSTRUCTION:
+        The scraped text is from the career's page of a website.
+        Your job is to extract the job postings and return them in JSON format containing the
+        following keys: `role`, `experience`, `skills` and `description`.
+        Only return the valid JSON.
+        ### VALID JSON (NO PREAMBLE):
+        """
+    )
+
+    chain_extract = prompt_extract | llm
+    res = chain_extract.invoke(input={"page_data": page_data})
+    st.write(f"Extracted Job Postings JSON: {res.content}")
+
+# Section 4: Cold Email Generation
+st.header("Generate Cold Email")
+if 'json_res' in locals():
+    job_description = res.content  # Assuming job details are extracted
+    df = pd.read_csv("my_portfolio.csv")
     collection = client.get_or_create_collection(name='portfolio')
 
-    if collection.count() == 0:
-        for _, row in df.iterrows():
-            collection.add(
-                documents=[row["Techstack"]],
-                metadatas=[{'links': row["Links"]}],
-                ids=[str(uuid.uuid4())]
-            )
+    if st.button("Add Portfolio to ChromaDB"):
+        if not collection.count():
+            for _, row in df.iterrows():
+                collection.add(
+                    documents=row["Techstack"],
+                    metadatas={'links': row["Links"]},
+                    ids=[str(uuid.uuid4())]
+                )
+        st.success("Portfolio added to ChromaDB!")
 
-    # Example: Querying for relevant portfolio links
-    query = st.text_input("Enter a skill or experience query to find portfolio links", "experience in Python")
-    if st.button("Query Portfolio"):
-        results = collection.query(query_texts=[query], n_results=2)
-        links = [item['links'] for item in results['metadatas'][0]]
-        st.write("Matching Portfolio Links:")
-        st.write(links)
+    if st.button("Generate Email"):
+        # Query portfolio database
+        links = collection.query(
+            query_texts=['experience in Python', 'experience in ML', 'experience in LLm'],
+            n_results=2
+        ).get('metadatas')
 
-# Section: Cold Email Generation
-st.header("3. Generate Cold Email Based on Extracted Job Description")
-
-# Dynamic user inputs for personalization
-sender_name = st.text_input("Sender's Name", "John Doe")
-company_name = st.text_input("Company Name", "AtliQ")
-role = st.text_input("Your Role at the Company", "Business Development Executive")
-company_overview = st.text_area("Company Overview", "AtliQ is an AI & Software Consulting company dedicated to facilitating the seamless integration of business processes through automated tools. Over our experience, we have empowered numerous enterprises with tailored solutions, fostering scalability, process optimization, cost reduction, and heightened overall efficiency.")
-
-if st.button("Generate Cold Email"):
-    if 'job_description' in locals():
         prompt_email = PromptTemplate.from_template(
             """
             ### JOB DESCRIPTION:
             {job_description}
 
             ### INSTRUCTION:
-            You are {sender_name}, a {role} at {company_name}. {company_overview}
-            Your job is to write a cold email to the client regarding the job mentioned above describing the capability of {company_name}
+            You are Mohan, a business development executive at AtliQ. AtliQ is an AI & Software Consulting company dedicated to facilitating
+            the seamless integration of business processes through automated tools.
+            Over our experience, we have empowered numerous enterprises with tailored solutions, fostering scalability,
+            process optimization, cost reduction, and heightened overall efficiency.
+            Your job is to write a cold email to the client regarding the job mentioned above describing the capability of AtliQ
             in fulfilling their needs.
-            Also add the most relevant ones from the following links to showcase {company_name}'s portfolio: {link_list}
+            Also add the most relevant ones from the following links to showcase Atliq's portfolio: {link_list}
+            Remember you are Mohan, BDE at AtliQ.
             Do not provide a preamble.
             ### EMAIL (NO PREAMBLE):
             """
         )
 
-        # Run the chain to generate the cold email
         chain_email = prompt_email | llm
-        res = chain_email.invoke({
-            "job_description": json.dumps(job_description),
-            "sender_name": sender_name,
-            "role": role,
-            "company_name": company_name,
-            "company_overview": company_overview,
+        email_res = chain_email.invoke(input={
+            "job_description": str(job_description),
             "link_list": links
         })
-
-        # Display the generated cold email
-        st.subheader("Generated Cold Email:")
-        st.write(res.content)
-    else:
-        st.error("Please extract the job description from the URL first.")
+        st.write(f"Generated Email: {email_res.content}")
