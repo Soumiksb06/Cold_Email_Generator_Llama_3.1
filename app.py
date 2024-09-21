@@ -5,6 +5,8 @@ import chromadb
 import uuid
 import pandas as pd
 from langchain_core.prompts import PromptTemplate
+import os
+os.environ['PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION'] = 'python'
 
 # Set up LangChain LLM (replace with your API key)
 llm = ChatGroq(
