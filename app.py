@@ -1,6 +1,3 @@
-!sudo apt-get update
-!sudo apt-get install sqlite3 libsqlite3-dev
-
 import streamlit as st
 from langchain_groq import ChatGroq
 import chromadb
