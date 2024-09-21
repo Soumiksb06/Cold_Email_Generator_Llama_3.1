@@ -6,4 +6,4 @@ chromadb
 pandas
 uuid
 beautifulsoup4
-protobuf
+protobuf==3.19
