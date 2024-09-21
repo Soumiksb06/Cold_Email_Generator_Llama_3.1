@@ -4,8 +4,9 @@ from langchain_community.document_loaders import WebBaseLoader
 import chromadb
 import uuid
 import pandas as pd
-from langchain_core.prompts import PromptTemplate
+from langchain.prompts import PromptTemplate
 import os
+import json
 os.environ['PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION'] = 'python'
 
 # Set up LangChain LLM (replace with your API key)
@@ -26,30 +27,34 @@ if st.button("Extract Job Description"):
     if url:
         # Load the web page content
         loader = WebBaseLoader(url)
-        page_data = loader.load().pop().page_content
+        page_data = loader.load()[0].page_content
 
         # Set up the prompt to extract job details
         prompt_extract = PromptTemplate.from_template(
             """
             ### SCRAPED TEXT FROM WEBSITE:
-                {page_data}
-                ### INSTRUCTION:
-                The scraped text is from the career's page of a website.
-                Your job is to extract the job postings and return them in JSON format containing the
-                following keys: `role`, `experience`, `skills`, and `description`.
-                Only return the valid JSON.
-                ### VALID JSON (NO PREAMBLE):
+            {page_data}
+            ### INSTRUCTION:
+            The scraped text is from the career's page of a website.
+            Your job is to extract the job postings and return them in JSON format containing the
+            following keys: `role`, `experience`, `skills`, and `description`.
+            Only return the valid JSON.
+            ### VALID JSON (NO PREAMBLE):
             """
         )
         
         # Generate the job description using LangChain
         chain_extract = prompt_extract | llm
-        res = chain_extract.invoke(input={"page_data": page_data})
+        res = chain_extract.invoke({"page_data": page_data})
 
         # Display the extracted job description
         st.subheader("Extracted Job Description:")
-        st.write(res.content)
-        job_description = res.content  # Save for later use in cold email generation
+        try:
+            job_description = json.loads(res.content)
+            st.json(job_description)
+        except json.JSONDecodeError:
+            st.error("Failed to parse JSON. Raw response:")
+            st.write(res.content)
     else:
         st.error("Please enter a valid URL.")
 
@@ -64,20 +69,22 @@ if uploaded_file:
     st.dataframe(df)
 
     # Initialize ChromaDB client and create a collection
-    client = chromadb.PersistentClient('vectorstore')
+    client = chromadb.PersistentClient(path='./vectorstore')
     collection = client.get_or_create_collection(name='portfolio')
 
-    if not collection.count():
+    if collection.count() == 0:
         for _, row in df.iterrows():
-            collection.add(documents=row["Techstack"],
-                           metadatas={'links': row["Links"]},
-                           ids=[str(uuid.uuid4())])
+            collection.add(
+                documents=[row["Techstack"]],
+                metadatas=[{'links': row["Links"]}],
+                ids=[str(uuid.uuid4())]
+            )
 
     # Example: Querying for relevant portfolio links
     query = st.text_input("Enter a skill or experience query to find portfolio links", "experience in Python")
     if st.button("Query Portfolio"):
         results = collection.query(query_texts=[query], n_results=2)
-        links = results.get('metadatas')
+        links = [item['links'] for item in results['metadatas'][0]]
         st.write("Matching Portfolio Links:")
         st.write(links)
 
@@ -91,7 +98,7 @@ role = st.text_input("Your Role at the Company", "Business Development Executive
 company_overview = st.text_area("Company Overview", "AtliQ is an AI & Software Consulting company dedicated to facilitating the seamless integration of business processes through automated tools. Over our experience, we have empowered numerous enterprises with tailored solutions, fostering scalability, process optimization, cost reduction, and heightened overall efficiency.")
 
 if st.button("Generate Cold Email"):
-    if job_description:
+    if 'job_description' in locals():
         prompt_email = PromptTemplate.from_template(
             """
             ### JOB DESCRIPTION:
@@ -109,8 +116,8 @@ if st.button("Generate Cold Email"):
 
         # Run the chain to generate the cold email
         chain_email = prompt_email | llm
-        res = chain_email.invoke(input={
-            "job_description": job_description,
+        res = chain_email.invoke({
+            "job_description": json.dumps(job_description),
             "sender_name": sender_name,
             "role": role,
             "company_name": company_name,
