@@ -7,3 +7,4 @@ pandas
 uuid
 beautifulsoup4
 protobuf==3.19
+sqlite3
