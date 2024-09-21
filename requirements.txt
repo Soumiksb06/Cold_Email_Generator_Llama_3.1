@@ -1,6 +1,7 @@
 streamlit
 langchain
 langchain-groq
+langchain_community
 chromadb
 pandas
 uuid
