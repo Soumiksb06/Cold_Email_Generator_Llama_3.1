@@ -6,7 +6,7 @@ import uuid
 import pandas as pd
 from langchain_core.prompts import PromptTemplate
 
-# Set up LangChain LLM (replace your API key here)
+# Set up LangChain LLM (replace with your API key)
 llm = ChatGroq(
     temperature=1,
     groq_api_key='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',
@@ -82,6 +82,12 @@ if uploaded_file:
 # Section: Cold Email Generation
 st.header("3. Generate Cold Email Based on Extracted Job Description")
 
+# Dynamic user inputs for personalization
+sender_name = st.text_input("Sender's Name", "John Doe")
+company_name = st.text_input("Company Name", "AtliQ")
+role = st.text_input("Your Role at the Company", "Business Development Executive")
+company_overview = st.text_area("Company Overview", "AtliQ is an AI & Software Consulting company dedicated to facilitating the seamless integration of business processes through automated tools. Over our experience, we have empowered numerous enterprises with tailored solutions, fostering scalability, process optimization, cost reduction, and heightened overall efficiency.")
+
 if st.button("Generate Cold Email"):
     if job_description:
         prompt_email = PromptTemplate.from_template(
@@ -90,14 +96,10 @@ if st.button("Generate Cold Email"):
             {job_description}
 
             ### INSTRUCTION:
-            You are Mohan, a business development executive at AtliQ. AtliQ is an AI & Software Consulting company dedicated to facilitating
-            the seamless integration of business processes through automated tools.
-            Over our experience, we have empowered numerous enterprises with tailored solutions, fostering scalability,
-            process optimization, cost reduction, and heightened overall efficiency.
-            Your job is to write a cold email to the client regarding the job mentioned above describing the capability of AtliQ
+            You are {sender_name}, a {role} at {company_name}. {company_overview}
+            Your job is to write a cold email to the client regarding the job mentioned above describing the capability of {company_name}
             in fulfilling their needs.
-            Also add the most relevant ones from the following links to showcase Atliq's portfolio: {link_list}
-            Remember you are Mohan, BDE at AtliQ.
+            Also add the most relevant ones from the following links to showcase {company_name}'s portfolio: {link_list}
             Do not provide a preamble.
             ### EMAIL (NO PREAMBLE):
             """
@@ -107,6 +109,10 @@ if st.button("Generate Cold Email"):
         chain_email = prompt_email | llm
         res = chain_email.invoke(input={
             "job_description": job_description,
+            "sender_name": sender_name,
+            "role": role,
+            "company_name": company_name,
+            "company_overview": company_overview,
             "link_list": links
         })
 
